@@ -4,7 +4,8 @@ use std::{
     fs::{self, OpenOptions},
     io::{Cursor, Read, Write},
     net::{Shutdown, TcpStream},
-    time::{Duration, SystemTime}, sync::Arc,
+    sync::Arc,
+    time::{Duration, SystemTime},
 };
 
 use form_data_builder::FormData;
@@ -12,9 +13,10 @@ use openssl::ssl::{Ssl, SslContext, SslMethod, SslStream};
 use serenity::{
     async_trait,
     framework::StandardFramework,
-    model::prelude::{ChannelType, Message, ChannelId},
+    futures::StreamExt,
+    model::prelude::{ChannelId, ChannelType, Message},
     prelude::*,
-    Client, futures::StreamExt,
+    Client,
 };
 use songbird::SerenityInit;
 
@@ -111,7 +113,10 @@ impl Frame {
                 stream
                     .write(&[*byte])
                     .expect("api: write failed at complete_send");
-                stream.get_ref().set_read_timeout(Some(Duration::from_millis(500))).expect("tcp: unable to set timeout");
+                stream
+                    .get_ref()
+                    .set_read_timeout(Some(Duration::from_millis(500)))
+                    .expect("tcp: unable to set timeout");
                 let mut buf = Vec::new();
                 let _ = stream.read_to_end(&mut buf); // failure is normal
                 stream.shutdown().expect("ssl: shutdown failed");
@@ -176,7 +181,10 @@ async fn send_frames(message: Message, ctx: Context) {
         tokio::spawn(async move {
             let sa = unix_millis();
             println!("voice: init");
-            let channel = guild_id.create_channel(http, |c| c.name("ProjBotV3-Sound").kind(ChannelType::Voice)).await.expect("voice: unable to create channel");
+            let channel = guild_id
+                .create_channel(http, |c| c.name("ProjBotV3-Sound").kind(ChannelType::Voice))
+                .await
+                .expect("voice: unable to create channel");
             *c0.lock().await = Some(channel.id);
             println!("voice: joining");
             let (handler, err) = songbird.join(guild_id, channel.id).await;
@@ -184,7 +192,11 @@ async fn send_frames(message: Message, ctx: Context) {
                 panic!("voice: error {e}");
             }
             println!("voice: loading");
-            let handle = handler.lock().await.play_source(songbird::ffmpeg("aud_encoded").await.expect("voice: unable to load"));
+            let handle = handler.lock().await.play_source(
+                songbird::ffmpeg("aud_encoded")
+                    .await
+                    .expect("voice: unable to load"),
+            );
             handle.make_playable().unwrap();
             handle.pause().expect("voice: unable to pause");
             handle.set_volume(1.0).unwrap();
@@ -193,7 +205,7 @@ async fn send_frames(message: Message, ctx: Context) {
             println!("voice: playing");
             handle.play().expect("voice: unable to play");
             println!("{:?}", handle.get_info().await);
-        });//});
+        }); //});
         let mut sa = unix_millis();
         let mut to_compensate_for = 0;
         while let Some(mut frame) = v.next() {
@@ -203,23 +215,58 @@ async fn send_frames(message: Message, ctx: Context) {
                 format!("<ProjBotV3 by TudbuT#2624> Image will appear below [to_compensate_for={to_compensate_for}]").as_str(),
                 token,
             );
-            let msgs = n.channel_id.messages_iter(&ctx.http).take(30).collect::<Vec<_>>().await;
+            let msgs = n
+                .channel_id
+                .messages_iter(&ctx.http)
+                .take(30)
+                .collect::<Vec<_>>()
+                .await;
             println!("vid: waiting");
             let mut to_sleep = 5000 - ((unix_millis() - sa) as i128);
             sa = unix_millis();
-            if let Some(Ok(msg)) = msgs.iter().filter(|x| x.as_ref().unwrap().content == "!stop").next() {
-                msg.delete(&ctx.http).await.expect("discord: unable to delete command");
+            if let Some(Ok(msg)) = msgs
+                .iter()
+                .filter(|x| x.as_ref().unwrap().content == "!stop")
+                .next()
+            {
+                msg.delete(&ctx.http)
+                    .await
+                    .expect("discord: unable to delete command");
                 break;
             }
-            if let Some(Ok(msg)) = msgs.iter().filter(|x| x.as_ref().unwrap().content == "!sync vid").next() {
-                msg.delete(&ctx.http).await.expect("discord: unable to delete command");
+            if let Some(Ok(msg)) = msgs
+                .iter()
+                .filter(|x| x.as_ref().unwrap().content == "!sync vid")
+                .next()
+            {
+                msg.delete(&ctx.http)
+                    .await
+                    .expect("discord: unable to delete command");
                 to_compensate_for += 100;
-                msg.channel_id.say(&ctx.http, "<ProjBotV3 by TudbuT#2624> Skipped 100ms of video :+1:").await.expect("discord: unable to send commannd response");
+                msg.channel_id
+                    .say(
+                        &ctx.http,
+                        "<ProjBotV3 by TudbuT#2624> Skipped 100ms of video :+1:",
+                    )
+                    .await
+                    .expect("discord: unable to send commannd response");
             }
-            if let Some(Ok(msg)) = msgs.iter().filter(|x| x.as_ref().unwrap().content == "!sync aud").next() {
-                msg.delete(&ctx.http).await.expect("discord: unable to delete command");
+            if let Some(Ok(msg)) = msgs
+                .iter()
+                .filter(|x| x.as_ref().unwrap().content == "!sync aud")
+                .next()
+            {
+                msg.delete(&ctx.http)
+                    .await
+                    .expect("discord: unable to delete command");
                 to_sleep += 100;
-                msg.channel_id.say(&ctx.http, "<ProjBotV3 by TudbuT#2624> Skipped 100ms of video :+1:").await.expect("discord: unable to send commannd response");
+                msg.channel_id
+                    .say(
+                        &ctx.http,
+                        "<ProjBotV3 by TudbuT#2624> Skipped 100ms of video :+1:",
+                    )
+                    .await
+                    .expect("discord: unable to send commannd response");
             }
             to_sleep -= (unix_millis() - sa) as i128;
             'calc: loop {
@@ -250,16 +297,17 @@ async fn send_frames(message: Message, ctx: Context) {
             .await
             .expect("discord: unable to delete message");
         if let Some(c) = *c1.lock().await {
-            c.delete(&ctx.http).await.expect("discord: unable to delete voice channel");
+            c.delete(&ctx.http)
+                .await
+                .expect("discord: unable to delete voice channel");
         }
-    });//});
+    }); //});
 }
 
 struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler {
-
     async fn message(&self, ctx: Context, message: Message) {
         if message.guild_id == None {
             println!("DM");
@@ -281,7 +329,9 @@ async fn main() {
             .collect::<Vec<String>>()
             .get(1)
             .expect("discord: no token provided"),
-        GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT | GatewayIntents::GUILD_VOICE_STATES,
+        GatewayIntents::non_privileged()
+            | GatewayIntents::MESSAGE_CONTENT
+            | GatewayIntents::GUILD_VOICE_STATES,
     )
     .framework(framework)
     .event_handler(Handler)
