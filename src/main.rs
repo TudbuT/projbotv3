@@ -403,27 +403,30 @@ async fn main() {
                     .set_repeat(gif::Repeat::Finite(0))
                     .expect("encode: unable to set repeat");
                 println!("encode: encoding {n}...");
-                for i in (n * (25 * 5) + 1)..=dir {
-                    let decoder = Decoder::new(
-                        File::open(format!("vid/{}.png", i))
-                            .expect(format!("encode: unable to read vid/{}.png", i).as_str()),
-                    );
-                    let mut reader = decoder
-                        .read_info()
-                        .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
-                    let mut buf: Vec<u8> = vec![0; reader.output_buffer_size()];
-                    let info = reader
-                        .next_frame(&mut buf)
-                        .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
-                    let bytes = &mut buf[..info.buffer_size()];
-                    let mut frame = gif::Frame::from_rgb(240, 180, bytes);
-                    frame.delay = 4;
-                    encoder
-                        .as_mut()
-                        .unwrap()
-                        .write_frame(&frame)
-                        .expect("encode: unable to encode frame to gif");
-                    if i / (25 * 5) != n + 1 {
+                for i in (n * (25 * 5))..dir {
+                    {
+                        let i = i + 1;
+                        let decoder = Decoder::new(
+                            File::open(format!("vid/{}.png", i))
+                                .expect(format!("encode: unable to read vid/{}.png", i).as_str()),
+                        );
+                        let mut reader = decoder
+                            .read_info()
+                            .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
+                        let mut buf: Vec<u8> = vec![0; reader.output_buffer_size()];
+                        let info = reader
+                            .next_frame(&mut buf)
+                            .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
+                        let bytes = &mut buf[..info.buffer_size()];
+                        let mut frame = gif::Frame::from_rgb(240, 180, bytes);
+                        frame.delay = 4;
+                        encoder
+                            .as_mut()
+                            .unwrap()
+                            .write_frame(&frame)
+                            .expect("encode: unable to encode frame to gif");
+                    }
+                    if i / (25 * 5) != n {
                         break;
                     }
                 }
