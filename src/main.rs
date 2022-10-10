@@ -2,7 +2,7 @@ use std::{
     env,
     ffi::OsStr,
     fs::{self, File, OpenOptions},
-    io::{self, Cursor, Read, Write},
+    io::{Cursor, Read, Write},
     net::{Shutdown, TcpStream},
     path::Path,
     process::{self, Stdio},
@@ -72,7 +72,7 @@ impl Frame {
 
         stream.connect().expect("api: connection failed");
         stream
-            .write(
+            .write_all(
                 format!(
                     "PATCH /api/v10/channels/{}/messages/{message} HTTP/1.1\n",
                     &self.channel
@@ -81,19 +81,19 @@ impl Frame {
             )
             .expect("api: write failed");
         stream
-            .write(
+            .write_all(
                 "Host: discord.com\nUser-Agent: projbot3 image uploader (tudbut@tudbut.de)\n"
                     .as_bytes(),
             )
             .expect("api: write failed");
         stream
-            .write(format!("Content-Length: {}\n", data.len()).as_bytes())
+            .write_all(format!("Content-Length: {}\n", data.len()).as_bytes())
             .expect("api: write failed");
         stream
-            .write(format!("Content-Type: {}\n", form.content_type_header()).as_bytes())
+            .write_all(format!("Content-Type: {}\n", form.content_type_header()).as_bytes())
             .expect("api: write failed");
         stream
-            .write(format!("Authorization: Bot {}\n\n", token).as_bytes())
+            .write_all(format!("Authorization: Bot {}\n\n", token).as_bytes())
             .expect("api: write failed");
 
         // remove the last byte and cache it in the frame object for later write finish
@@ -104,19 +104,19 @@ impl Frame {
         );
         data.remove(data.len() - 1);
 
-        stream.write(data.as_slice()).expect("api: write failed");
+        stream.write_all(data.as_slice()).expect("api: write failed");
 
         self.cache_stream = Some(stream);
         // now the frame is ready to send the next part
     }
 
     fn complete_send(&mut self) {
-        let ref mut cache_stream = self.cache_stream;
-        let ref byte_to_write = self.byte_to_write;
+        let cache_stream = &mut self.cache_stream;
+        let byte_to_write = &self.byte_to_write;
         if let Some(stream) = cache_stream {
             if let Some(byte) = byte_to_write {
                 stream
-                    .write(&[*byte])
+                    .write_all(&[*byte])
                     .expect("api: write failed at complete_send");
                 stream
                     .get_ref()
@@ -142,9 +142,8 @@ async fn send_frames(message: Message, ctx: Context) {
     use tokio::sync::Mutex;
 
     let mut v: Vec<Frame> = Vec::new();
-    let dir = fs::read_dir("vid_encoded").expect("unable to read dir");
-    let dir: Vec<_> = dir.collect();
-    for i in 0..dir.len() {
+    let dir = fs::read_dir("vid_encoded").expect("unable to read dir").count();
+    for i in 0..dir {
         let mut file = OpenOptions::new()
             .read(true)
             .write(false)
@@ -215,7 +214,7 @@ async fn send_frames(message: Message, ctx: Context) {
         });
         let mut sa = unix_millis();
         let mut to_compensate_for = 0;
-        while let Some(mut frame) = v.next() {
+        for mut frame in v.by_ref() {
             println!("vid: caching");
             frame.cache_frame(
                 n.id.0,
@@ -233,8 +232,7 @@ async fn send_frames(message: Message, ctx: Context) {
             sa = unix_millis();
             if let Some(Ok(msg)) = msgs
                 .iter()
-                .filter(|x| x.as_ref().unwrap().content == "!stop")
-                .next()
+                .find(|x| x.as_ref().unwrap().content == "!stop")
             {
                 msg.delete(&ctx.http)
                     .await
@@ -243,8 +241,7 @@ async fn send_frames(message: Message, ctx: Context) {
             }
             if let Some(Ok(msg)) = msgs
                 .iter()
-                .filter(|x| x.as_ref().unwrap().content == "!sync vid")
-                .next()
+                .find(|x| x.as_ref().unwrap().content == "!sync vid")
             {
                 msg.delete(&ctx.http)
                     .await
@@ -260,8 +257,7 @@ async fn send_frames(message: Message, ctx: Context) {
             }
             if let Some(Ok(msg)) = msgs
                 .iter()
-                .filter(|x| x.as_ref().unwrap().content == "!sync aud")
-                .next()
+                .find(|x| x.as_ref().unwrap().content == "!sync aud")
             {
                 msg.delete(&ctx.http)
                     .await
@@ -377,10 +373,9 @@ async fn main() {
             .expect("encode: unable to move aud.opus to aud_encoded");
 
         fs::create_dir("vid_encoded").expect("encode: unable to modify files");
-        let dir: Vec<_> = fs::read_dir("vid")
+        let dir = fs::read_dir("vid")
             .expect("encode: unable to read files")
-            .collect();
-        let dir = dir.len();
+            .count();
         let running = Arc::new(Mutex::new(0));
         println!("encode: encoding gifs...");
         for n in 0..((dir as f32 / (25.0 * 5.0)).ceil() as usize) {
@@ -421,7 +416,7 @@ async fn main() {
                         .next_frame(&mut buf)
                         .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
                     let bytes = &mut buf[..info.buffer_size()];
-                    let mut frame = gif::Frame::from_rgb(240, 180, &mut *bytes);
+                    let mut frame = gif::Frame::from_rgb(240, 180, bytes);
                     frame.delay = 4;
                     encoder
                         .as_mut()
