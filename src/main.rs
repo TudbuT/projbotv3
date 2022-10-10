@@ -2,7 +2,7 @@ use std::{
     env,
     ffi::OsStr,
     fs::{self, File, OpenOptions},
-    io::{Cursor, Read, Write},
+    io::{self, Cursor, Read, Write},
     net::{Shutdown, TcpStream},
     path::Path,
     process::{self, Stdio},
@@ -428,14 +428,21 @@ async fn main() {
                         .unwrap()
                         .write_frame(&frame)
                         .expect("encode: unable to encode frame to gif");
-                    if i / (25 * 5) != n {
+                    if i / (25 * 5) != n + 1 {
                         break;
                     }
                 }
                 *running.lock().unwrap() -= 1;
                 println!("encode: encoded {n}");
             });
-            thread::sleep(Duration::from_millis(5000));
+            #[cfg(debug_assertions)]
+            {
+                thread::sleep(Duration::from_millis(5000));
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                thread::sleep(Duration::from_millis(200));
+            }
         }
         while *running.lock().unwrap() != 0 {
             tokio::time::sleep(Duration::from_millis(100)).await;
