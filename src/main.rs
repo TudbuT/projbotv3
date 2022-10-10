@@ -1,15 +1,19 @@
 use std::{
     env,
     ffi::OsStr,
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{Cursor, Read, Write},
     net::{Shutdown, TcpStream},
-    sync::Arc,
-    time::{Duration, SystemTime},
+    path::Path,
+    process::{self, Stdio},
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime}, thread,
 };
 
 use form_data_builder::FormData;
+use gif::Encoder;
 use openssl::ssl::{Ssl, SslContext, SslMethod, SslStream};
+use png::Decoder;
 use serenity::{
     async_trait,
     framework::StandardFramework,
@@ -134,6 +138,8 @@ impl Frame {
 }
 
 async fn send_frames(message: Message, ctx: Context) {
+    use tokio::sync::Mutex;
+
     let mut v: Vec<Frame> = Vec::new();
     let dir = fs::read_dir("vid_encoded").expect("unable to read dir");
     let dir: Vec<_> = dir.collect();
@@ -161,7 +167,6 @@ async fn send_frames(message: Message, ctx: Context) {
         .expect("voice: unable to initialize songbird");
     let c0: Arc<Mutex<Option<ChannelId>>> = Arc::new(Mutex::new(None));
     let c1 = c0.clone();
-    //thread::spawn(move || {tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
     tokio::spawn(async move {
         let message = message;
         let ctx = ctx;
@@ -176,8 +181,6 @@ async fn send_frames(message: Message, ctx: Context) {
             )
             .await
             .expect("discord: unable to send");
-        println!("starting to send in {}@{}", n.id.0, message.channel_id.0);
-        //thread::spawn(move || {tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
         tokio::spawn(async move {
             let sa = unix_millis();
             println!("voice: init");
@@ -185,6 +188,7 @@ async fn send_frames(message: Message, ctx: Context) {
                 .create_channel(http, |c| c.name("ProjBotV3-Sound").kind(ChannelType::Voice))
                 .await
                 .expect("voice: unable to create channel");
+            let api_time = unix_millis() - sa;
             *c0.lock().await = Some(channel.id);
             println!("voice: joining");
             let (handler, err) = songbird.join(guild_id, channel.id).await;
@@ -192,7 +196,7 @@ async fn send_frames(message: Message, ctx: Context) {
                 panic!("voice: error {e}");
             }
             println!("voice: loading");
-            let handle = handler.lock().await.play_source(
+            let handle = handler.lock().await.play_only_source(
                 songbird::ffmpeg("aud_encoded")
                     .await
                     .expect("voice: unable to load"),
@@ -200,12 +204,11 @@ async fn send_frames(message: Message, ctx: Context) {
             handle.make_playable().unwrap();
             handle.pause().expect("voice: unable to pause");
             handle.set_volume(1.0).unwrap();
-            println!("voice: waiting for video");
-            tokio::time::sleep(Duration::from_millis(5000 - (unix_millis() - sa))).await;
+            println!("voice: waiting for video [api_time={api_time}]");
+            tokio::time::sleep(Duration::from_millis(5000 - (unix_millis() - sa) + (api_time * 2))).await;
             println!("voice: playing");
             handle.play().expect("voice: unable to play");
-            println!("{:?}", handle.get_info().await);
-        }); //});
+        });
         let mut sa = unix_millis();
         let mut to_compensate_for = 0;
         while let Some(mut frame) = v.next() {
@@ -293,6 +296,7 @@ async fn send_frames(message: Message, ctx: Context) {
             println!("vid: completing");
             frame.complete_send();
         }
+        tokio::time::sleep(Duration::from_millis(5000)).await;
         n.delete(&ctx.http)
             .await
             .expect("discord: unable to delete message");
@@ -301,7 +305,7 @@ async fn send_frames(message: Message, ctx: Context) {
                 .await
                 .expect("discord: unable to delete voice channel");
         }
-    }); //});
+    });
 }
 
 struct Handler;
@@ -310,12 +314,10 @@ struct Handler;
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
         if message.guild_id == None {
-            println!("DM");
             return;
         }
 
         if message.content == "!play" {
-            println!("hi");
             send_frames(message, ctx).await;
         }
     }
@@ -323,6 +325,120 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
+    if !Path::new("vid_encoded/").is_dir() {
+        println!("encode: encoding video...");
+        fs::create_dir("vid").expect("encode: unable to modify files");
+        let mut command = process::Command::new("ffmpeg")
+            .args([
+                "-i",
+                "vid.mp4",
+                "-vf",
+                "fps=fps=25",
+                "-deadline",
+                "realtime",
+                "vid_25fps.mp4",
+            ])
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("encode: unable to find or run ffmpeg");
+        command.wait().expect("encode: ffmpeg failed: mp4->mp4");
+        let mut command = process::Command::new("ffmpeg")
+            .args([
+                "-i",
+                "vid_25fps.mp4",
+                "-vf",
+                "scale=240:180,setsar=1:1",
+                "-deadline",
+                "realtime",
+                "vid/%0d.png",
+            ])
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("encode: unable to find or run ffmpeg");
+        command.wait().expect("encode: ffmpeg failed: mp4->png");
+        fs::remove_file("vid_25fps.mp4").expect("encode: rm vid_25fps.mp4 failed");
+        let mut command = process::Command::new("ffmpeg")
+            .args(["-i", "vid.mp4", "-deadline", "realtime", "aud.opus"])
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("encode: unable to find or run ffmpeg");
+        command.wait().expect("encode: ffmpeg failed: mp4->opus");
+        fs::rename("aud.opus", "aud_encoded")
+            .expect("encode: unable to move aud.opus to aud_encoded");
+
+        fs::create_dir("vid_encoded").expect("encode: unable to modify files");
+        let dir: Vec<_> = fs::read_dir("vid")
+            .expect("encode: unable to read files")
+            .collect();
+        let dir = dir.len();
+        let running = Arc::new(Mutex::new(0));
+        println!("encode: encoding gifs...");
+        for n in 0..((dir as f32 / (25.0 * 5.0)).ceil() as usize) {
+            let running = running.clone();
+            thread::spawn(move || {
+                *running.lock().unwrap() += 1;
+                let mut image = File::create(format!("vid_encoded/{n}"))
+                    .expect("encode: unable to create gif file");
+                let mut encoder = Some(
+                    Encoder::new(&mut image, 240, 180, &[]).expect("encode: unable to create gif"),
+                );
+                encoder
+                    .as_mut()
+                    .unwrap()
+                    .write_extension(gif::ExtensionData::new_control_ext(
+                        4,
+                        gif::DisposalMethod::Any,
+                        false,
+                        None,
+                    ))
+                    .expect("encode: unable to write extension data");
+                encoder
+                    .as_mut()
+                    .unwrap()
+                    .set_repeat(gif::Repeat::Finite(0))
+                    .expect("encode: unable to set repeat");
+                println!("encode: encoding {n}...");
+                for i in (n * (25 * 5) + 1)..=dir {
+                    let decoder = Decoder::new(
+                        File::open(format!("vid/{}.png", i))
+                            .expect(format!("encode: unable to read vid/{}.png", i).as_str()),
+                    );
+                    let mut reader = decoder
+                        .read_info()
+                        .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
+                    let mut buf: Vec<u8> = vec![0; reader.output_buffer_size()];
+                    let info = reader
+                        .next_frame(&mut buf)
+                        .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
+                    let bytes = &mut buf[..info.buffer_size()];
+                    let mut frame = gif::Frame::from_rgb(240, 180, &mut *bytes);
+                    frame.delay = 4;
+                    encoder
+                        .as_mut()
+                        .unwrap()
+                        .write_frame(&frame)
+                        .expect("encode: unable to encode frame to gif");
+                    if i / (25 * 5) != n {
+                        break;
+                    }
+                }
+                *running.lock().unwrap() -= 1;
+                println!("encode: encoded {n}");
+            });
+            thread::sleep(Duration::from_millis(5000));
+        }
+        while *running.lock().unwrap() != 0 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        println!("encode: done");
+    }
+
     let framework = StandardFramework::new().configure(|c| c.prefix("!"));
     let mut client = Client::builder(
         env::args()

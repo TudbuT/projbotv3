@@ -11,3 +11,5 @@ serenity = {version="0.11.5", features=["builder", "cache", "client", "framework
 songbird = {version="0.3.0", features=["driver", "serenity-rustls"]}
 openssl = "0.10.42"
 form-data-builder = "1.0.1"
+png = "0.17.6"
+gif = "0.11.4"
