@@ -7,7 +7,8 @@ use std::{
     path::Path,
     process::{self, Stdio},
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime}, thread,
+    thread,
+    time::{Duration, SystemTime},
 };
 
 use form_data_builder::FormData;
@@ -205,7 +206,10 @@ async fn send_frames(message: Message, ctx: Context) {
             handle.pause().expect("voice: unable to pause");
             handle.set_volume(1.0).unwrap();
             println!("voice: waiting for video [api_time={api_time}]");
-            tokio::time::sleep(Duration::from_millis(5000 - (unix_millis() - sa) + (api_time * 2))).await;
+            tokio::time::sleep(Duration::from_millis(
+                5000 - (unix_millis() - sa) + (api_time * 2),
+            ))
+            .await;
             println!("voice: playing");
             handle.play().expect("voice: unable to play");
         });
