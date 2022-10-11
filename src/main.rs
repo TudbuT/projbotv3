@@ -379,60 +379,62 @@ async fn main() {
         let running = Arc::new(Mutex::new(0));
         println!("encode: encoding gifs...");
         for n in 0..((dir as f32 / (25.0 * 5.0)).ceil() as usize) {
-            let running = running.clone();
-            thread::spawn(move || {
-                *running.lock().unwrap() += 1;
-                let mut image = File::create(format!("vid_encoded/{n}"))
-                    .expect("encode: unable to create gif file");
-                let mut encoder = Some(
-                    Encoder::new(&mut image, 240, 180, &[]).expect("encode: unable to create gif"),
-                );
-                encoder
-                    .as_mut()
-                    .unwrap()
-                    .write_extension(gif::ExtensionData::new_control_ext(
-                        4,
-                        gif::DisposalMethod::Any,
-                        false,
-                        None,
-                    ))
-                    .expect("encode: unable to write extension data");
-                encoder
-                    .as_mut()
-                    .unwrap()
-                    .set_repeat(gif::Repeat::Finite(0))
-                    .expect("encode: unable to set repeat");
-                println!("encode: encoding {n}...");
-                for i in (n * (25 * 5))..dir {
-                    {
-                        let i = i + 1;
-                        let decoder = Decoder::new(
-                            File::open(format!("vid/{}.png", i))
-                                .expect(format!("encode: unable to read vid/{}.png", i).as_str()),
-                        );
-                        let mut reader = decoder
-                            .read_info()
-                            .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
-                        let mut buf: Vec<u8> = vec![0; reader.output_buffer_size()];
-                        let info = reader
-                            .next_frame(&mut buf)
-                            .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
-                        let bytes = &mut buf[..info.buffer_size()];
-                        let mut frame = gif::Frame::from_rgb(240, 180, bytes);
-                        frame.delay = 4;
-                        encoder
-                            .as_mut()
-                            .unwrap()
-                            .write_frame(&frame)
-                            .expect("encode: unable to encode frame to gif");
+            {
+                let running = running.clone();
+                thread::spawn(move || {
+                    *running.lock().unwrap() += 1;
+                    let mut image = File::create(format!("vid_encoded/{n}"))
+                        .expect("encode: unable to create gif file");
+                    let mut encoder = Some(
+                        Encoder::new(&mut image, 240, 180, &[]).expect("encode: unable to create gif"),
+                    );
+                    encoder
+                        .as_mut()
+                        .unwrap()
+                        .write_extension(gif::ExtensionData::new_control_ext(
+                            4,
+                            gif::DisposalMethod::Any,
+                            false,
+                            None,
+                        ))
+                        .expect("encode: unable to write extension data");
+                    encoder
+                        .as_mut()
+                        .unwrap()
+                        .set_repeat(gif::Repeat::Finite(0))
+                        .expect("encode: unable to set repeat");
+                    println!("encode: encoding {n}...");
+                    for i in (n * (25 * 5))..dir {
+                        {
+                            let i = i + 1;
+                            let decoder = Decoder::new(
+                                File::open(format!("vid/{}.png", i))
+                                    .expect(format!("encode: unable to read vid/{}.png", i).as_str()),
+                            );
+                            let mut reader = decoder
+                                .read_info()
+                                .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
+                            let mut buf: Vec<u8> = vec![0; reader.output_buffer_size()];
+                            let info = reader
+                                .next_frame(&mut buf)
+                                .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
+                            let bytes = &mut buf[..info.buffer_size()];
+                            let mut frame = gif::Frame::from_rgb(240, 180, bytes);
+                            frame.delay = 4;
+                            encoder
+                                .as_mut()
+                                .unwrap()
+                                .write_frame(&frame)
+                                .expect("encode: unable to encode frame to gif");
+                        }
+                        if i / (25 * 5) != n {
+                            break;
+                        }
                     }
-                    if i / (25 * 5) != n {
-                        break;
-                    }
-                }
-                *running.lock().unwrap() -= 1;
-                println!("encode: encoded {n}");
-            });
+                    *running.lock().unwrap() -= 1;
+                    println!("encode: encoded {n}");
+                });
+            }
             while *running.lock().unwrap() < 5 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
