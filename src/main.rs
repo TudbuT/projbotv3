@@ -104,7 +104,9 @@ impl Frame {
         );
         data.remove(data.len() - 1);
 
-        stream.write_all(data.as_slice()).expect("api: write failed");
+        stream
+            .write_all(data.as_slice())
+            .expect("api: write failed");
         stream.flush().expect("api: flush failed");
 
         self.cache_stream = Some(stream);
@@ -144,7 +146,9 @@ async fn send_frames(message: Message, ctx: Context) {
     use tokio::sync::Mutex;
 
     let mut v: Vec<Frame> = Vec::new();
-    let dir = fs::read_dir("vid_encoded").expect("unable to read dir").count();
+    let dir = fs::read_dir("vid_encoded")
+        .expect("unable to read dir")
+        .count();
     for i in 0..dir {
         let mut file = OpenOptions::new()
             .read(true)
@@ -208,7 +212,15 @@ async fn send_frames(message: Message, ctx: Context) {
             handle.set_volume(1.0).unwrap();
             println!("voice: waiting for video [api_time={api_time}]");
             tokio::time::sleep(Duration::from_millis(
-                5000 - (unix_millis() - sa) + (api_time as i64 * i64::from_str_radix(env::var("PROJBOTV3_API_TIME_FACTOR").unwrap_or("3".into()).as_str(), 10).unwrap()) as u64,
+                5000 - (unix_millis() - sa)
+                    + (api_time as i64
+                        * i64::from_str_radix(
+                            env::var("PROJBOTV3_API_TIME_FACTOR")
+                                .unwrap_or("3".into())
+                                .as_str(),
+                            10,
+                        )
+                        .unwrap()) as u64,
             ))
             .await;
             println!("voice: playing");
@@ -236,10 +248,7 @@ async fn send_frames(message: Message, ctx: Context) {
             println!("vid: waiting");
             let mut to_sleep = 5000 - ((unix_millis() - sa) as i128);
             sa = unix_millis();
-            if let Some(Ok(msg)) = msgs
-                .iter()
-                .find(|x| x.as_ref().unwrap().content == "!stop")
-            {
+            if let Some(Ok(msg)) = msgs.iter().find(|x| x.as_ref().unwrap().content == "!stop") {
                 msg.delete(&ctx.http)
                     .await
                     .expect("discord: unable to delete command");
@@ -302,7 +311,9 @@ async fn send_frames(message: Message, ctx: Context) {
             println!("vid: completing");
             tokio::task::spawn_blocking(move || {
                 frame.complete_send();
-            }).await.unwrap();
+            })
+            .await
+            .unwrap();
         }
         tokio::time::sleep(Duration::from_millis(5000)).await;
         n.delete(&ctx.http)
@@ -379,7 +390,6 @@ async fn main() {
             command.wait().expect("encode: ffmpeg failed: mp4->opus");
             fs::rename("aud.opus", "aud_encoded")
                 .expect("encode: unable to move aud.opus to aud_encoded");
-
         }
         let _ = fs::create_dir("vid_encoded");
         let dir = fs::read_dir("vid")
@@ -395,7 +405,8 @@ async fn main() {
                     let mut image = File::create(format!("vid_encoded/{n}"))
                         .expect("encode: unable to create gif file");
                     let mut encoder = Some(
-                        Encoder::new(&mut image, 240, 180, &[]).expect("encode: unable to create gif"),
+                        Encoder::new(&mut image, 240, 180, &[])
+                            .expect("encode: unable to create gif"),
                     );
                     encoder
                         .as_mut()
@@ -416,17 +427,17 @@ async fn main() {
                     for i in (n * (25 * 5))..dir {
                         {
                             let i = i + 1;
-                            let decoder = Decoder::new(
-                                File::open(format!("vid/{}.png", i))
-                                    .expect(format!("encode: unable to read vid/{}.png", i).as_str()),
+                            let decoder =
+                                Decoder::new(File::open(format!("vid/{}.png", i)).expect(
+                                    format!("encode: unable to read vid/{}.png", i).as_str(),
+                                ));
+                            let mut reader = decoder.read_info().expect(
+                                format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str(),
                             );
-                            let mut reader = decoder
-                                .read_info()
-                                .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
                             let mut buf: Vec<u8> = vec![0; reader.output_buffer_size()];
-                            let info = reader
-                                .next_frame(&mut buf)
-                                .expect(format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str());
+                            let info = reader.next_frame(&mut buf).expect(
+                                format!("encode: invalid ffmpeg output in vid/{}.png", i).as_str(),
+                            );
                             let bytes = &mut buf[..info.buffer_size()];
                             let mut frame = gif::Frame::from_rgb(240, 180, bytes);
                             frame.delay = 4;
