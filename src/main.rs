@@ -266,7 +266,7 @@ async fn send_frames(message: Message, ctx: Context) {
                 msg.channel_id
                     .say(
                         &ctx.http,
-                        "<ProjBotV3 by TudbuT#2624> Skipped 100ms of video :+1:",
+                        "<ProjBotV3 by TudbuT#2624> Stretching 100ms of video :+1:",
                     )
                     .await
                     .expect("discord: unable to send commannd response");
