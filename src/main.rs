@@ -105,6 +105,7 @@ impl Frame {
         data.remove(data.len() - 1);
 
         stream.write_all(data.as_slice()).expect("api: write failed");
+        stream.flush().expect("api: flush failed");
 
         self.cache_stream = Some(stream);
         // now the frame is ready to send the next part
@@ -118,6 +119,7 @@ impl Frame {
                 stream
                     .write_all(&[*byte])
                     .expect("api: write failed at complete_send");
+                stream.flush().expect("api: flush failed");
                 stream
                     .get_ref()
                     .set_read_timeout(Some(Duration::from_millis(500)))
@@ -171,7 +173,7 @@ async fn send_frames(message: Message, ctx: Context) {
         let message = message;
         let ctx = ctx;
         let args = env::args().collect::<Vec<String>>();
-        let token = args.get(1).unwrap();
+        let token = args.get(1).unwrap().to_owned();
         let mut v = v.into_iter();
         let n = message
             .channel_id
@@ -206,7 +208,7 @@ async fn send_frames(message: Message, ctx: Context) {
             handle.set_volume(1.0).unwrap();
             println!("voice: waiting for video [api_time={api_time}]");
             tokio::time::sleep(Duration::from_millis(
-                5000 - (unix_millis() - sa) + (api_time * u64::from_str_radix(env::var("PROJBOTV3_API_TIME_FACTOR").unwrap_or("3".into()).as_str(), 10).unwrap()),
+                5000 - (unix_millis() - sa) + (api_time as i64 * i64::from_str_radix(env::var("PROJBOTV3_API_TIME_FACTOR").unwrap_or("3".into()).as_str(), 10).unwrap()) as u64,
             ))
             .await;
             println!("voice: playing");
@@ -216,11 +218,15 @@ async fn send_frames(message: Message, ctx: Context) {
         let mut to_compensate_for = 0;
         for mut frame in v.by_ref() {
             println!("vid: caching");
-            frame.cache_frame(
-                n.id.0,
-                format!("<ProjBotV3 by TudbuT#2624> Image will appear below [to_compensate_for={to_compensate_for}]").as_str(),
-                token,
-            );
+            let token = token.clone();
+            let mut frame = tokio::task::spawn_blocking(move || {
+                frame.cache_frame(
+                    n.id.0,
+                    format!("<ProjBotV3 by TudbuT#2624> Image will appear below [to_compensate_for={to_compensate_for}]").as_str(),
+                    token.as_str(),
+                );
+                frame
+            }).await.unwrap();
             let msgs = n
                 .channel_id
                 .messages_iter(&ctx.http)
@@ -294,7 +300,9 @@ async fn send_frames(message: Message, ctx: Context) {
             tokio::time::sleep(Duration::from_millis(to_sleep as u64)).await;
             sa = unix_millis();
             println!("vid: completing");
-            frame.complete_send();
+            tokio::task::spawn_blocking(move || {
+                frame.complete_send();
+            }).await.unwrap();
         }
         tokio::time::sleep(Duration::from_millis(5000)).await;
         n.delete(&ctx.http)
@@ -323,7 +331,7 @@ impl EventHandler for Handler {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 async fn main() {
     if !Path::new("vid_encoded/").is_dir() {
         println!("encode: encoding video...");
