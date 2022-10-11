@@ -435,7 +435,7 @@ async fn main() {
                     println!("encode: encoded {n}");
                 });
             }
-            while *running.lock().unwrap() < 5 {
+            while *running.lock().unwrap() >= 6 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
