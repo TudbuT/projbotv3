@@ -433,13 +433,8 @@ async fn main() {
                 *running.lock().unwrap() -= 1;
                 println!("encode: encoded {n}");
             });
-            #[cfg(debug_assertions)]
-            {
-                thread::sleep(Duration::from_millis(5000));
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                thread::sleep(Duration::from_millis(200));
+            while *running.lock().unwrap() < 5 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
         while *running.lock().unwrap() != 0 {
