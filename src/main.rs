@@ -206,7 +206,7 @@ async fn send_frames(message: Message, ctx: Context) {
             handle.set_volume(1.0).unwrap();
             println!("voice: waiting for video [api_time={api_time}]");
             tokio::time::sleep(Duration::from_millis(
-                5000 - (unix_millis() - sa) + (api_time * 2),
+                5000 - (unix_millis() - sa) + (api_time * u64::from_str_radix(env::var("PROJBOTV3_API_TIME_FACTOR").unwrap_or("3".into()).as_str(), 10).unwrap()),
             ))
             .await;
             println!("voice: playing");
