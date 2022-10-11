@@ -327,62 +327,63 @@ impl EventHandler for Handler {
 async fn main() {
     if !Path::new("vid_encoded/").is_dir() {
         println!("encode: encoding video...");
-        fs::create_dir("vid").expect("encode: unable to modify files");
-        let mut command = process::Command::new("ffmpeg")
-            .args([
-                "-i",
-                "vid.mp4",
-                "-vf",
-                "fps=fps=25",
-                "-deadline",
-                "realtime",
-                "vid_25fps.mp4",
-            ])
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("encode: unable to find or run ffmpeg");
-        command.wait().expect("encode: ffmpeg failed: mp4->mp4");
-        let mut command = process::Command::new("ffmpeg")
-            .args([
-                "-i",
-                "vid_25fps.mp4",
-                "-vf",
-                "scale=240:180,setsar=1:1",
-                "-deadline",
-                "realtime",
-                "vid/%0d.png",
-            ])
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("encode: unable to find or run ffmpeg");
-        command.wait().expect("encode: ffmpeg failed: mp4->png");
-        fs::remove_file("vid_25fps.mp4").expect("encode: rm vid_25fps.mp4 failed");
-        let mut command = process::Command::new("ffmpeg")
-            .args(["-i", "vid.mp4", "-deadline", "realtime", "aud.opus"])
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("encode: unable to find or run ffmpeg");
-        command.wait().expect("encode: ffmpeg failed: mp4->opus");
-        fs::rename("aud.opus", "aud_encoded")
-            .expect("encode: unable to move aud.opus to aud_encoded");
+        if let Ok(_) = fs::create_dir("vid") {
+            let mut command = process::Command::new("ffmpeg")
+                .args([
+                    "-i",
+                    "vid.mp4",
+                    "-vf",
+                    "fps=fps=25",
+                    "-deadline",
+                    "realtime",
+                    "vid_25fps.mp4",
+                ])
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .expect("encode: unable to find or run ffmpeg");
+            command.wait().expect("encode: ffmpeg failed: mp4->mp4");
+            let mut command = process::Command::new("ffmpeg")
+                .args([
+                    "-i",
+                    "vid_25fps.mp4",
+                    "-vf",
+                    "scale=240:180,setsar=1:1",
+                    "-deadline",
+                    "realtime",
+                    "vid/%0d.png",
+                ])
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .expect("encode: unable to find or run ffmpeg");
+            command.wait().expect("encode: ffmpeg failed: mp4->png");
+            fs::remove_file("vid_25fps.mp4").expect("encode: rm vid_25fps.mp4 failed");
+            let mut command = process::Command::new("ffmpeg")
+                .args(["-i", "vid.mp4", "-deadline", "realtime", "aud.opus"])
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .expect("encode: unable to find or run ffmpeg");
+            command.wait().expect("encode: ffmpeg failed: mp4->opus");
+            fs::rename("aud.opus", "aud_encoded")
+                .expect("encode: unable to move aud.opus to aud_encoded");
 
-        fs::create_dir("vid_encoded").expect("encode: unable to modify files");
+        }
+        let _ = fs::create_dir("vid_encoded");
         let dir = fs::read_dir("vid")
             .expect("encode: unable to read files")
             .count();
         let running = Arc::new(Mutex::new(0));
         println!("encode: encoding gifs...");
         for n in 0..((dir as f32 / (25.0 * 5.0)).ceil() as usize) {
+            *running.lock().unwrap() += 1;
             {
                 let running = running.clone();
                 thread::spawn(move || {
-                    *running.lock().unwrap() += 1;
                     let mut image = File::create(format!("vid_encoded/{n}"))
                         .expect("encode: unable to create gif file");
                     let mut encoder = Some(
@@ -438,6 +439,7 @@ async fn main() {
             while *running.lock().unwrap() >= 6 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
         while *running.lock().unwrap() != 0 {
             tokio::time::sleep(Duration::from_millis(100)).await;
