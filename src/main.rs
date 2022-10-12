@@ -228,13 +228,14 @@ async fn send_frames(message: Message, ctx: Context) {
         });
         let mut sa = unix_millis();
         let mut to_compensate_for = 0;
+        let mut free_time = 0;
         for mut frame in v.by_ref() {
             println!("vid: caching");
             let token = token.clone();
             let mut frame = tokio::task::spawn_blocking(move || {
                 frame.cache_frame(
                     n.id.0,
-                    format!("<ProjBotV3 by TudbuT#2624> Image will appear below [to_compensate_for={to_compensate_for}]").as_str(),
+                    format!("<ProjBotV3 by TudbuT#2624> Image will appear below [to_compensate_for={to_compensate_for}, free_time={free_time}]").as_str(),
                     token.as_str(),
                 );
                 frame
@@ -306,6 +307,7 @@ async fn send_frames(message: Message, ctx: Context) {
 
                 break 'calc;
             }
+            free_time = to_sleep;
             tokio::time::sleep(Duration::from_millis(to_sleep as u64)).await;
             sa = unix_millis();
             println!("vid: completing");
