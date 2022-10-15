@@ -1,3 +1,6 @@
+#![allow(clippy::expect_fun_call)] // I don't see a reason for this warn
+
+
 mod frame;
 
 use crate::frame::Frame;
@@ -97,11 +100,10 @@ async fn send_video(message: Message, ctx: Context) {
             tokio::time::sleep(Duration::from_millis(
                 5000 - (unix_millis() - sa)
                     + (api_time as i64
-                        * i64::from_str_radix(
+                        * str::parse::<i64>(
                             env::var("PROJBOTV3_API_TIME_FACTOR")
-                                .unwrap_or("3".into())
-                                .as_str(),
-                            10,
+                                .unwrap_or_else(|_| "3".into())
+                                .as_str()
                         )
                         .unwrap()) as u64,
             ))
@@ -253,7 +255,7 @@ async fn main() {
     // If vid_encoded doesn't exist, convert vid.mp4 into vid_encoded
     if !Path::new("vid_encoded/").is_dir() {
         println!("encode: encoding video...");
-        if let Ok(_) = fs::create_dir("vid") {
+        if fs::create_dir("vid").is_ok() {
             // We're using ffmpeg commands because ffmpeg's api is a hunk of junk
             let mut command = process::Command::new("ffmpeg")
                 .args([
