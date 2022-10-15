@@ -6,8 +6,9 @@ Projector Bot V3, written in rust this time.
 
 ### Useful commands
 
-So far, V3 isn't fully automatically converting the images. Either use V2 for that, or run
-these commands and figure out a way to merge multiple pngs to a gif.
+~~So far, V3 isn't fully automatically converting the images. Either use V2 for that, or run
+these commands and figure out a way to merge multiple pngs to a gif.~~
+It is now able to do all this automatically.
 
 ```
 ffmpeg -i vid.mp4 -vf fps=fps=30 -deadline realtime vid_30fps.mp4
