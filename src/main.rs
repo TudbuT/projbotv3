@@ -345,7 +345,8 @@ async fn main() {
                         // n number of previously encoded gifs * 25 frames per second * 5 seconds
                         {
                             let i = i + 1; // because ffmpeg starts counting at 1 :p
-                                           // Decode frame
+
+                            // Decode frame
                             let decoder = Decoder::new(
                                 File::open(format!("vid/{i}.png"))
                                     .expect(format!("encode: unable to read vid/{i}.png").as_str()),
