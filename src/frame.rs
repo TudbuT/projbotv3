@@ -42,7 +42,7 @@ impl Frame {
                     "attachments": [
                         {
                             "id": 0,
-                            "filename": "projbot3.gif"
+                            "filename": "ProjBotV3.gif"
                         }
                     ]
                 })
@@ -55,7 +55,7 @@ impl Frame {
         form.write_file(
             "files[0]",
             Cursor::new(self.bytes.as_slice()),
-            Some(OsStr::new("projbot3.gif")),
+            Some(OsStr::new("ProjBotV3.gif")),
             "image/gif",
         )
         .expect("form: attachment failed");
@@ -73,7 +73,7 @@ impl Frame {
             .expect("api: write failed");
         stream
             .write_all(
-                "Host: discord.com\nUser-Agent: projbot3 image uploader (tudbut@tudbut.de)\n"
+                "Host: discord.com\nUser-Agent: ProjBotV3 image uploader (tudbut@tudbut.de)\n"
                     .as_bytes(),
             )
             .expect("api: write failed");
