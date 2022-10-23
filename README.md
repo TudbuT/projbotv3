@@ -4,6 +4,19 @@ Projector Bot V3, written in rust this time.
 
 [V2](https://github.com/tudbut/projectorbotv2_full)
 
+## How to run jt
+
+First, install this by [installing the rust toolchain](https://rustup.rs) and then running
+`cargo install --git ` followed by the link to this repo. 
+
+Afterwards, you can use it like this
+```
+$ ytdl -q 18 -o vid.out https://youtu.be/FtutLA63Cp8 # download a video to vid.mp4
+$ projbotv3 $(cat bot-token) # assuming there is a file called bot-token containing the bot token
+```
+
+The bot will now convert the video into its preferred format and then connect to discord.
+
 ### Useful commands
 
 ~~So far, V3 isn't fully automatically converting the images. Either use V2 for that, or run
