@@ -1,16 +1,17 @@
 use form_data_builder::FormData;
-use openssl::ssl::{Ssl, SslContext, SslMethod, SslStream};
+use rustls::{OwnedTrustAnchor, RootCertStore, ClientConfig, ClientConnection, Stream};
 use std::{
     ffi::OsStr,
     io::{Cursor, Read, Write},
     net::{Shutdown, TcpStream},
-    time::Duration,
+    time::Duration, sync::Arc,
 };
 
 pub struct Frame {
     pub bytes: Vec<u8>,
     pub channel: u64,
-    cache_stream: Option<SslStream<TcpStream>>,
+    tcp_stream: Option<TcpStream>,
+    cache_stream: Option<ClientConnection>,
     byte_to_write: Option<u8>,
 }
 
@@ -19,18 +20,28 @@ impl Frame {
         Frame {
             bytes,
             channel,
+            tcp_stream: None,
             cache_stream: None,
             byte_to_write: None,
         }
     }
 
     pub fn cache_frame(&mut self, message: u64, content: &str, token: &str) {
-        let ssl_context = SslContext::builder(SslMethod::tls_client())
-            .expect("ssl: context init failed")
-            .build();
-        let ssl = Ssl::new(&ssl_context).expect("ssl: init failed");
-        let tcp_stream = TcpStream::connect("discord.com:443").expect("api: connect error");
-        let mut stream = SslStream::new(ssl, tcp_stream).expect("ssl: stream init failed");
+        let mut root_store = RootCertStore::empty();
+        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+            OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        }));
+        let client_config = Arc::new(ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(root_store)
+            .with_no_client_auth());
+        let mut tcp_stream = TcpStream::connect("discord.com:443").expect("api: connect error");
+        let mut connection = ClientConnection::new(client_config, "discord.com".try_into().unwrap()).expect("ssl: context init failed");
+        let mut stream: Stream<ClientConnection, TcpStream> = Stream::new(&mut connection, &mut tcp_stream);
 
         let mut form = FormData::new(Vec::new());
 
@@ -61,7 +72,6 @@ impl Frame {
         .expect("form: attachment failed");
         let mut data = form.finish().expect("form: finish failed");
 
-        stream.connect().expect("api: connection failed");
         stream
             .write_all(
                 format!(
@@ -100,33 +110,38 @@ impl Frame {
             .expect("api: write failed");
         stream.flush().expect("api: flush failed");
 
-        self.cache_stream = Some(stream);
+        self.cache_stream = Some(connection);
+        self.tcp_stream = Some(tcp_stream);
         // now the frame is ready to send the next part
     }
 
     pub fn complete_send(&mut self) {
         let cache_stream = &mut self.cache_stream;
         let byte_to_write = &self.byte_to_write;
-        if let Some(stream) = cache_stream {
+        let tcp_stream = &mut self.tcp_stream;
+        if let Some(connection) = cache_stream {
             if let Some(byte) = byte_to_write {
-                stream
-                    .write_all(&[*byte])
-                    .expect("api: write failed at complete_send");
-                stream.flush().expect("api: flush failed");
-                stream
-                    .get_ref()
-                    .set_read_timeout(Some(Duration::from_millis(500)))
-                    .expect("tcp: unable to set timeout");
-                let mut buf = Vec::new();
-                let _ = stream.read_to_end(&mut buf); // failure is normal
-                stream.shutdown().expect("ssl: shutdown failed");
-                stream
-                    .get_ref()
-                    .shutdown(Shutdown::Both)
-                    .expect("tcp: shutdown failed");
-                self.cache_stream = None;
-                self.byte_to_write = None;
-                return;
+                if let Some(tcp_stream) = tcp_stream {
+                    let mut stream: Stream<ClientConnection, TcpStream> = Stream::new(connection, tcp_stream);
+                    stream
+                        .write_all(&[*byte])
+                        .expect("api: write failed at complete_send");
+                    stream.flush().expect("api: flush failed");
+                    stream.sock
+                        .set_read_timeout(Some(Duration::from_millis(500)))
+                        .expect("tcp: unable to set timeout");
+                    let mut buf = Vec::new();
+                    let _ = stream.read_to_end(&mut buf); // failure is normal
+                    stream.conn.send_close_notify();
+                    stream.conn.write_tls(stream.sock).expect("ssl: unable to close connection");
+                    stream.sock.flush().expect("ssl: unable to flush");
+                    stream.sock
+                        .shutdown(Shutdown::Both)
+                        .expect("tcp: shutdown failed");
+                    self.cache_stream = None;
+                    self.byte_to_write = None;
+                    return;
+                }
             }
         }
         panic!("complete_send called on uncached frame!");

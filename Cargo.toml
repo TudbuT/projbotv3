@@ -9,7 +9,8 @@ edition = "2021"
 tokio = {version="1.21.2", features=["full"]}
 serenity = {version="0.11.5", features=["builder", "cache", "client", "framework", "gateway", "http", "model", "standard_framework", "utils", "rustls_backend", "voice"]}
 songbird = {version="0.3.0", features=["driver", "serenity-rustls"]}
-openssl = "0.10.42"
-form-data-builder = "1.0.1"
-png = "0.17.6"
-gif = "0.11.4"
+rustls = "0.20"
+form-data-builder = "1.0"
+png = "0.17"
+gif = "0.11"
+webpki-roots = "0.22"

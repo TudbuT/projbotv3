@@ -98,7 +98,7 @@ async fn send_video(message: Message, ctx: Context) {
                     + (api_time as i64
                         * str::parse::<i64>(
                             env::var("PROJBOTV3_API_TIME_FACTOR")
-                                .unwrap_or_else(|_| "3".into())
+                                .unwrap_or_else(|_| "5".into())
                                 .as_str(),
                         )
                         .unwrap()) as u64,
