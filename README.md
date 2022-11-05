@@ -4,7 +4,7 @@ Projector Bot V3, written in rust this time.
 
 [V2](https://github.com/tudbut/projectorbotv2_full)
 
-## How to run jt
+## How to run it
 
 First, install this by [installing the rust toolchain](https://rustup.rs) and then running
 `cargo install --git ` followed by the link to this repo. 
