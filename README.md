@@ -4,7 +4,15 @@ Projector Bot V3, written in rust this time.
 
 [V2](https://github.com/tudbut/projectorbotv2_full)
 
-## How to run it
+## Quick start
+
+1. Download the executable from https://github.com/tudbut/projbotv3/releases/latest
+2. Download ffmpeg using [the official but complicated process](https://ffmpeg.org/), your package manager of choice, or from the releases page of this repo.
+3. Download a video
+4. Put all these downloaded files into the same folder
+5. Start a CMD or terminal, `cd WHERE_YOU_PUT_THE_FILES` and run the executable using `./projbotv3 TOKEN_HERE`.
+
+## How to build it
 
 First, install this by [installing the rust toolchain](https://rustup.rs) and then running
 `cargo install --git ` followed by the link to this repo. 
