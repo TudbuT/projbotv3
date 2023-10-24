@@ -1,13 +1,21 @@
 use std::{
+    env,
     fs::{self, File},
+    io::Write,
+    path::PathBuf,
     process::{self, Stdio},
     sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
 
-use gif::Encoder;
-use png::Decoder;
+use gifski::{progress::NoProgress, Repeat, Settings};
+
+const MB_1: usize = 1024 * 1024;
+
+const WIDTH: u32 = 320;
+const HEIGHT: u32 = 240;
+const FAST_INTERNET_SIZE: usize = MB_1 * 3;
 
 pub async fn convert() {
     println!("encode: encoding video...");
@@ -18,25 +26,7 @@ pub async fn convert() {
                 "-i",
                 "vid.mp4",
                 "-vf",
-                "fps=fps=25",
-                "-deadline",
-                "realtime",
-                "vid_25fps.mp4",
-            ])
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("encode: unable to find or run ffmpeg");
-        command.wait().expect("encode: ffmpeg failed: mp4->mp4");
-        let mut command = process::Command::new("ffmpeg")
-            .args([
-                "-i",
-                "vid_25fps.mp4",
-                "-vf",
-                "scale=240:180,setsar=1:1",
-                "-deadline",
-                "realtime",
+                &format!("scale={WIDTH}:{HEIGHT},setsar=1:1,fps=fps=25"),
                 "vid/%0d.png",
             ])
             .stdin(Stdio::inherit())
@@ -45,9 +35,8 @@ pub async fn convert() {
             .spawn()
             .expect("encode: unable to find or run ffmpeg");
         command.wait().expect("encode: ffmpeg failed: mp4->png");
-        fs::remove_file("vid_25fps.mp4").expect("encode: rm vid_25fps.mp4 failed");
         let mut command = process::Command::new("ffmpeg")
-            .args(["-i", "vid.mp4", "-deadline", "realtime", "aud.opus"])
+            .args(["-i", "vid.mp4", "aud.opus"])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -75,56 +64,45 @@ pub async fn convert() {
             thread::spawn(move || {
                 let mut image = File::create(format!("vid_encoded/{n}"))
                     .expect("encode: unable to create gif file");
-                let mut encoder = Some(
-                    Encoder::new(&mut image, 240, 180, &[]).expect("encode: unable to create gif"),
-                );
-                // Write the gif control bytes
-                encoder
-                    .as_mut()
-                    .unwrap()
-                    .write_extension(gif::ExtensionData::new_control_ext(
-                        4,
-                        gif::DisposalMethod::Any,
-                        false,
-                        None,
-                    ))
-                    .expect("encode: unable to write extension data");
-                encoder
-                    .as_mut()
-                    .unwrap()
-                    .set_repeat(gif::Repeat::Finite(0))
-                    .expect("encode: unable to set repeat");
+                let mut buf = Vec::with_capacity(3 * 1024 * 1024);
+                let (encoder, writer) = gifski::new(Settings {
+                    width: Some(WIDTH),
+                    height: Some(HEIGHT),
+                    quality: 100,
+                    fast: false,
+                    repeat: Repeat::Finite(0),
+                })
+                .expect("unable to start encoder");
+                thread::spawn(move || {
+                    writer
+                        .write(&mut buf, &mut NoProgress {})
+                        .expect("gif writer failed");
+                    if !env::var("PROJBOTV3_FAST_INTERNET")
+                        .unwrap_or("".to_owned())
+                        .is_empty()
+                        && buf.len() < FAST_INTERNET_SIZE
+                    {
+                        buf.resize(FAST_INTERNET_SIZE, 0); // extend with zeroes to unify length
+                    }
+                    image
+                        .write_all(buf.as_slice())
+                        .expect("unable to write to file");
+                    *running.lock().unwrap() -= 1;
+                    println!("encode: encoded {n}");
+                });
                 // Encode frames into gif
                 println!("encode: encoding {n}...");
-                for i in (n * (25 * 5))..dir {
+                for (gi, i) in ((n * (25 * 5))..dir).enumerate() {
                     // n number of previously encoded gifs * 25 frames per second * 5 seconds
                     {
-                        let i = i + 1; // because ffmpeg starts counting at 1 :p
+                        let fi = i + 1; // because ffmpeg starts counting at 1 :p
 
-                        // Decode frame
-                        let decoder = Decoder::new(
-                            File::open(format!("vid/{i}.png"))
-                                .expect(format!("encode: unable to read vid/{i}.png").as_str()),
-                        );
-                        let mut reader = decoder.read_info().expect(
-                            format!("encode: invalid ffmpeg output in vid/{i}.png").as_str(),
-                        );
-                        let mut buf: Vec<u8> = vec![0; reader.output_buffer_size()];
-                        let info = reader.next_frame(&mut buf).expect(
-                            format!("encode: invalid ffmpeg output in vid/{i}.png").as_str(),
-                        );
-                        let bytes = &mut buf[..info.buffer_size()];
-                        // Encode frame
-                        let mut frame = gif::Frame::from_rgb(240, 180, bytes);
-                        // The gif crate is a little weird with extension data, it writes a
-                        // block for each frame, so we have to remind it of what we want again
-                        // for each frame
-                        frame.delay = 4;
-                        // Add to gif
                         encoder
-                            .as_mut()
-                            .unwrap()
-                            .write_frame(&frame)
+                            .add_frame_png_file(
+                                gi,
+                                PathBuf::from(format!("vid/{fi}.png")),
+                                gi as f64 / 100.0 * 4.0,
+                            )
                             .expect("encode: unable to encode frame to gif");
                     }
                     // We don't want to encode something that is supposed to go into the next frame
@@ -132,15 +110,11 @@ pub async fn convert() {
                         break;
                     }
                 }
-                *running.lock().unwrap() -= 1;
-                println!("encode: encoded {n}");
             });
         }
-        // Always have 6 running, but no more
         while *running.lock().unwrap() >= 6 {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        tokio::time::sleep(Duration::from_millis(500)).await;
     }
     while *running.lock().unwrap() != 0 {
         tokio::time::sleep(Duration::from_millis(100)).await;

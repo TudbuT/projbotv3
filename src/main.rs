@@ -69,14 +69,14 @@ async fn send_video(message: Message, ctx: Context) {
             .expect("discord: unable to send");
         // Spawn task to send audio - This has to be here, because this is also where the timer is
         // started
+        let sa = unix_millis();
+        println!("voice: init");
+        let channel = guild_id
+            .create_channel(http, |c| c.name("ProjBotV3-Sound").kind(ChannelType::Voice))
+            .await
+            .expect("voice: unable to create channel");
+        let api_time = unix_millis() - sa;
         tokio::spawn(async move {
-            let sa = unix_millis();
-            println!("voice: init");
-            let channel = guild_id
-                .create_channel(http, |c| c.name("ProjBotV3-Sound").kind(ChannelType::Voice))
-                .await
-                .expect("voice: unable to create channel");
-            let api_time = unix_millis() - sa;
             *c0.lock().await = Some(channel.id);
             println!("voice: joining");
             let (handler, err) = songbird.join(guild_id, channel.id).await;
@@ -113,8 +113,12 @@ async fn send_video(message: Message, ctx: Context) {
         let mut to_compensate_for = 0;
         let mut free_time = 0;
 
+        const MB_1: usize = 1024 * 1024;
         // Send frames (5 second long gifs)
         for mut frame in v.by_ref() {
+            let size_mb = frame.bytes.len() as f32 / MB_1 as f32;
+            let size_compensation_active = frame.bytes.len() > MB_1;
+
             // Upload the frame to the API, but don't finish off the request.
             println!("vid: caching");
             let token = token.clone();
@@ -204,8 +208,16 @@ async fn send_video(message: Message, ctx: Context) {
             }
             // Set free_time to display
             free_time = to_sleep;
-            tokio::time::sleep(Duration::from_millis(to_sleep as u64)).await;
-            sa = unix_millis();
+            let size_compensation_time = if size_compensation_active {
+                (api_time as f32 * size_mb) as u64
+            } else {
+                0
+            };
+            tokio::time::sleep(Duration::from_millis(
+                to_sleep as u64 - size_compensation_time,
+            ))
+            .await;
+            sa = unix_millis() + size_compensation_time;
 
             // Now complete the request. This allows each request to take O(1) time
             println!("vid: completing");
@@ -214,6 +226,7 @@ async fn send_video(message: Message, ctx: Context) {
             })
             .await
             .unwrap();
+            tokio::time::sleep(Duration::from_millis(size_compensation_time)).await;
         }
 
         // The last frame would immediately be deleted if we didn't wait here.
@@ -237,7 +250,7 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
-        if message.guild_id == None {
+        if message.guild_id.is_none() {
             return;
         }
 
